@@ -1,0 +1,8 @@
+services:
+  telegram-agent:
+    build: .
+    restart: always
+    volumes:
+      - ./bot-data:/bot
+    env_file:
+      - .env

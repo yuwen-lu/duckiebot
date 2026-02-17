@@ -1,0 +1,10 @@
+# Environment
+.env
+
+# Bot runtime data
+bot-data/state.json
+bot-data/memory.md
+bot-data/skills/
+
+# Claude Code
+.claude/
