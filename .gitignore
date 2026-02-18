@@ -5,6 +5,8 @@
 bot-data/state.json
 bot-data/memory.md
 bot-data/skills/
+bot-data/chats/
+bot-data/sessions.json
 
 # Claude Code
 .claude/

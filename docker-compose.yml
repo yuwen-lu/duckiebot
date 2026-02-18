@@ -4,5 +4,7 @@ services:
     restart: always
     volumes:
       - ./bot-data:/bot
+      - ~/.ssh/id_ed25519:/home/duckie/.ssh/id_ed25519:ro
+      - ~/.ssh/known_hosts:/home/duckie/.ssh/known_hosts:ro
     env_file:
       - .env

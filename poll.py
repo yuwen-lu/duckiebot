@@ -150,12 +150,14 @@ def check_expired_sessions():
         del sessions[chat_id]
 
 
-def run_claude(prompt, session_id, is_new_session):
-    """Run claude with session continuity."""
+def run_claude(prompt, session_id, is_new_session, chat_id=None):
+    """Run claude with session continuity, streaming tool use to docker logs."""
     cmd = [
         "claude", "-p", prompt,
         "--model", "claude-sonnet-4-6",
         "--dangerously-skip-permissions",
+        "--output-format", "stream-json",
+        "--verbose",
     ]
 
     if is_new_session:
@@ -164,20 +166,59 @@ def run_claude(prompt, session_id, is_new_session):
         cmd.extend(["--resume", session_id])
 
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=300,
             cwd="/bot",
         )
-        output = result.stdout.strip()
-        if not output:
-            output = result.stderr.strip() or "No response from Claude."
-        return output
+
+        result_text = ""
+        sent_working = False
+        tool_count = 0
+
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            etype = event.get("type", "")
+
+            # Log tool use to docker logs
+            if etype == "tool_use":
+                tool_name = event.get("tool", event.get("name", "?"))
+                tool_input = event.get("input", "")
+                # Truncate long inputs for the log
+                input_preview = str(tool_input)[:200]
+                print(f"  🔧 {tool_name}: {input_preview}", flush=True)
+                tool_count += 1
+                # Send "working on it" after first tool use
+                if not sent_working and chat_id:
+                    send_message(chat_id, "🔧 Working on it...")
+                    sent_working = True
+
+            elif etype == "tool_result":
+                status = "✓" if not event.get("is_error") else "✗"
+                print(f"  {status} tool done", flush=True)
+
+            elif etype == "result":
+                result_text = event.get("result", "")
+
+        proc.wait(timeout=600)
+
+        if not result_text:
+            result_text = proc.stderr.read().strip() or "No response from Claude."
+        return result_text
     except subprocess.TimeoutExpired:
+        proc.kill()
         return None
-    except Exception:
+    except Exception as e:
+        print(f"run_claude error: {e}", file=sys.stderr, flush=True)
         return None
 
 
@@ -226,7 +267,7 @@ def main():
                 if chat_file:
                     log_chat(chat_file, "user", text)
 
-                reply = run_claude(text, session_id, is_new)
+                reply = run_claude(text, session_id, is_new, chat_id=chat_id)
 
                 if reply is None:
                     send_message(chat_id, "Something went wrong, try again.")

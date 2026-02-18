@@ -17,7 +17,13 @@ COPY poll.py /app/poll.py
 
 RUN chmod +x /app/entrypoint.sh
 
+RUN mkdir -p /home/duckie/.ssh && chown duckie:duckie /home/duckie/.ssh && chmod 700 /home/duckie/.ssh
+
 USER duckie
+
+RUN git config --global user.name "Duckie Bot" && \
+    git config --global user.email "duckie@bot"
+
 WORKDIR /bot
 
 CMD ["/app/entrypoint.sh"]
