@@ -193,7 +193,10 @@ def main():
                 if reply is None:
                     send_message(chat_id, "Something went wrong, try again.")
                 else:
-                    send_message(chat_id, reply)
+                    parts = [p.strip() for p in reply.split("---SPLIT---")]
+                    for part in parts:
+                        if part:
+                            send_message(chat_id, part)
 
                 print(f"Replied to {chat_id}", flush=True)
 
