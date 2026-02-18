@@ -13,9 +13,11 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
 STATE_FILE = "/bot/state.json"
 MEMORY_FILE = "/bot/memory.md"
+CHATS_DIR = "/bot/chats"
+SESSIONS_FILE = "/bot/sessions.json"
 SESSION_TIMEOUT = 300  # 5 minutes
 
-# Per-chat session tracking: {chat_id: {"session_id": str, "last_active": float}}
+# Per-chat session tracking
 sessions = {}
 
 
@@ -54,6 +56,13 @@ def save_state(state):
         json.dump(state, f)
 
 
+def log_chat(chat_file, role, text):
+    """Append a message to the chat log file."""
+    prefix = "> User" if role == "user" else "< Duckie"
+    with open(os.path.join("/bot", chat_file), "a") as f:
+        f.write(f"{prefix}: {text}\n")
+
+
 def get_or_create_session(chat_id):
     """Get existing session or create a new one. Returns (session_id, is_new)."""
     now = time.time()
@@ -68,12 +77,24 @@ def get_or_create_session(chat_id):
             expire_session(chat_id, info["session_id"])
 
     session_id = str(uuid.uuid4())
-    sessions[chat_id] = {"session_id": session_id, "last_active": now}
+    timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+    chat_file = f"chats/{timestamp}.md"
+    os.makedirs(CHATS_DIR, exist_ok=True)
+    sessions[chat_id] = {
+        "session_id": session_id,
+        "last_active": now,
+        "chat_file": chat_file,
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
     return session_id, True
 
 
 def expire_session(chat_id, session_id):
-    """Ask Claude to summarize the expired session and append to memory (in background)."""
+    """Ask Claude to summarize the expired session and save to sessions.json (in background)."""
+    info = sessions.get(chat_id, {})
+    chat_file = info.get("chat_file", "")
+    started_at = info.get("started_at", "")
+
     def _summarize():
         print(f"Session {session_id[:8]} expired for chat {chat_id}, summarizing...", flush=True)
         try:
@@ -93,11 +114,24 @@ def expire_session(chat_id, session_id):
             )
             summary = result.stdout.strip()
             if summary:
-                timestamp = time.strftime("%Y-%m-%d %H:%M")
-                entry = f"\n\n## Session {timestamp}\n{summary}\n"
-                with open(MEMORY_FILE, "a") as f:
-                    f.write(entry)
-                print(f"Saved session summary to memory.md", flush=True)
+                entry = {
+                    "session_id": session_id,
+                    "chat_id": chat_id,
+                    "started_at": started_at,
+                    "ended_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "chat_file": chat_file,
+                    "summary": summary,
+                }
+                # Load existing sessions.json, append, save
+                try:
+                    with open(SESSIONS_FILE, "r") as f:
+                        data = json.load(f)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    data = {"sessions": []}
+                data["sessions"].append(entry)
+                with open(SESSIONS_FILE, "w") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                print(f"Saved session summary to sessions.json", flush=True)
         except Exception as e:
             print(f"Failed to summarize session: {e}", file=sys.stderr, flush=True)
 
@@ -188,11 +222,17 @@ def main():
                 if is_new:
                     print(f"New session {session_id[:8]} for chat {chat_id}", flush=True)
 
+                chat_file = sessions[chat_id].get("chat_file", "")
+                if chat_file:
+                    log_chat(chat_file, "user", text)
+
                 reply = run_claude(text, session_id, is_new)
 
                 if reply is None:
                     send_message(chat_id, "Something went wrong, try again.")
                 else:
+                    if chat_file:
+                        log_chat(chat_file, "assistant", reply)
                     parts = [p.strip() for p in reply.split("---SPLIT---")]
                     for part in parts:
                         if part:
