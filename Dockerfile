@@ -6,7 +6,9 @@ RUN apt-get update && \
 
 RUN npm install -g @anthropic-ai/claude-code
 
-RUN mkdir -p /bot /app
+RUN useradd -m -s /bin/bash duckie
+
+RUN mkdir -p /bot /app && chown duckie:duckie /bot
 
 COPY entrypoint.sh /app/entrypoint.sh
 COPY default_poll.py /app/default_poll.py
@@ -14,6 +16,7 @@ COPY poll.py /app/poll.py
 
 RUN chmod +x /app/entrypoint.sh
 
+USER duckie
 WORKDIR /bot
 
 CMD ["/app/entrypoint.sh"]
