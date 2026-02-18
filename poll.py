@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import uuid
 import urllib.error
@@ -96,32 +97,35 @@ def get_or_create_session(chat_id):
 
 
 def expire_session(chat_id, session_id):
-    """Ask Claude to summarize the expired session and append to memory."""
-    print(f"Session {session_id[:8]} expired for chat {chat_id}, summarizing...", flush=True)
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p",
-                "Summarize our conversation so far in 2-3 concise bullet points. "
-                "Focus on key decisions, facts learned, and any pending tasks. "
-                "Output ONLY the bullet points, nothing else.",
-                "--model", "claude-sonnet-4-6",
-                "--resume", session_id,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd="/bot",
-        )
-        summary = result.stdout.strip()
-        if summary:
-            timestamp = time.strftime("%Y-%m-%d %H:%M")
-            entry = f"\n\n## Session {timestamp}\n{summary}\n"
-            with open(MEMORY_FILE, "a") as f:
-                f.write(entry)
-            print(f"Saved session summary to memory.md", flush=True)
-    except Exception as e:
-        print(f"Failed to summarize session: {e}", file=sys.stderr, flush=True)
+    """Ask Claude to summarize the expired session and append to memory (in background)."""
+    def _summarize():
+        print(f"Session {session_id[:8]} expired for chat {chat_id}, summarizing...", flush=True)
+        try:
+            result = subprocess.run(
+                [
+                    "claude", "-p",
+                    "Summarize our conversation so far in 2-3 concise bullet points. "
+                    "Focus on key decisions, facts learned, and any pending tasks. "
+                    "Output ONLY the bullet points, nothing else.",
+                    "--model", "claude-sonnet-4-6",
+                    "--resume", session_id,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd="/bot",
+            )
+            summary = result.stdout.strip()
+            if summary:
+                timestamp = time.strftime("%Y-%m-%d %H:%M")
+                entry = f"\n\n## Session {timestamp}\n{summary}\n"
+                with open(MEMORY_FILE, "a") as f:
+                    f.write(entry)
+                print(f"Saved session summary to memory.md", flush=True)
+        except Exception as e:
+            print(f"Failed to summarize session: {e}", file=sys.stderr, flush=True)
+
+    threading.Thread(target=_summarize, daemon=True).start()
 
 
 def check_expired_sessions():
@@ -142,7 +146,6 @@ def run_claude(prompt, session_id, is_new_session):
         "claude", "-p", prompt,
         "--model", "claude-sonnet-4-6",
         "--dangerously-skip-permissions",
-        "--allowedTools", "Bash", "Read", "Write", "Edit", "Glob", "Grep",
     ]
 
     if is_new_session:
