@@ -12,7 +12,6 @@ import urllib.request
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 API_BASE = f"https://api.telegram.org/bot{TOKEN}"
 STATE_FILE = "/bot/state.json"
-SKILLS_DIR = "/bot/skills"
 MEMORY_FILE = "/bot/memory.md"
 SESSION_TIMEOUT = 300  # 5 minutes
 
@@ -53,29 +52,6 @@ def load_state():
 def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
-
-
-def load_skills():
-    parts = []
-    if os.path.isdir(SKILLS_DIR):
-        for name in sorted(os.listdir(SKILLS_DIR)):
-            path = os.path.join(SKILLS_DIR, name)
-            if os.path.isfile(path):
-                try:
-                    with open(path, "r") as f:
-                        content = f.read()
-                    parts.append(f"=== SKILL: {name} ===\n{content}")
-                except Exception:
-                    pass
-    return "\n\n".join(parts)
-
-
-def load_memory():
-    try:
-        with open(MEMORY_FILE, "r") as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
 
 
 def get_or_create_session(chat_id):
@@ -149,20 +125,8 @@ def run_claude(prompt, session_id, is_new_session):
     ]
 
     if is_new_session:
-        # New session: inject skills and memory as system context
-        context_parts = []
-        skills = load_skills()
-        if skills:
-            context_parts.append(f"<skills>\n{skills}\n</skills>")
-        memory = load_memory()
-        if memory:
-            context_parts.append(f"<memory>\n{memory}\n</memory>")
-        if context_parts:
-            system_prompt = "\n\n".join(context_parts)
-            cmd.extend(["--append-system-prompt", system_prompt])
         cmd.extend(["--session-id", session_id])
     else:
-        # Continuing session: just resume
         cmd.extend(["--resume", session_id])
 
     try:
